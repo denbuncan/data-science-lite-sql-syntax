@@ -1,0 +1,88 @@
+select count(*) as "transactions"
+      ,count(distinct(transaction_id))
+      ,min(sale_price) as "min_sale_price"
+      ,avg(sale_price) as "avg_sale_price"
+      ,max(sale_price) as "max_sale_price"
+      ,min(transfer_date) as "min_sale_date"
+      ,max(transfer_date) as "max_sale_date"
+      ,count(distinct(postcode)) as "distinct_postcodes"
+      ,count(distinct(split_part(postcode,' ',1))) as "distinct_outcodes"
+      ,count(distinct(town)) as "distinct_town"
+      ,count(distinct(district)) as "distinct_district"
+      ,count(distinct(county)) as "distinct_county"
+from   uk_price_paid
+;
+with   cte_uk_price_paid_year as (
+select cast(extract('year' from transfer_date) as integer) as transfer_year
+        ,cast(avg(sale_price) as integer) as avg_sale_price
+from   uk_price_paid
+where  property_type <> 'O'
+--and    transfer_date >= '2010/01/01'
+group  by 1)
+select transfer_year
+        ,avg_sale_price
+        ,lag(avg_sale_price,1) over (order by transfer_year) as prev_avg_sale_price
+        ,avg_sale_price - lag(avg_sale_price,1) over (order by transfer_year) as avg_price_change
+        ,cast(((cast(avg_sale_price as decimal(9,2)) -
+         cast(lag(avg_sale_price ,1) over (order by transfer_year) as decimal(9,2))) /
+         cast(avg_sale_price as decimal(9,2)) * 100) as decimal (4,1)) as avg_price_change_pct
+from   cte_uk_price_paid_year
+order  by 1 desc
+;
+select property_type
+      ,count(*) as count_sales
+      ,cast(min(sale_price) as integer) as min_price
+        ,cast(avg(sale_price) as integer) as avg_price
+        ,cast(max(sale_price) as integer) as max_price
+      ,mode() within group (order by sale_price) as mode_price
+      ,cast(stddev(sale_price) as integer) as stddev_price 
+from   uk_price_paid
+where  transfer_date >= '2021/01/01'
+and    property_type <> 'O'
+and    sale_price < 5000000
+and    category = 'A'
+group  by 1
+order  by 1
+;
+select ntile_sale_price
+      ,min(sale_price)
+      ,cast(avg(sale_price) as integer)
+      ,max(sale_price)
+      ,count(*)
+from (
+select sale_price
+      ,ntile(100) over (order by sale_price) as ntile_sale_price
+from   uk_price_paid
+where  transfer_date >= '2021/01/01'
+and    property_type <> 'O'
+and    category = 'A') a
+group  by 1
+order  by 1 
+;
+ select b.postcode_town
+      ,a.postcode_area
+      ,a.rank_avg_sale_price
+      ,a.avg_sale_price
+      ,a.min_sale_price
+      ,a.max_sale_price
+      ,a.count_sales
+from  (
+select case when substring(postcode,2,1) in ('1','2','3','4','5','6','7','8','9') then substring(postcode,1,1)
+       else substring(postcode,1,2) end as postcode_area
+      ,min(sale_price) as min_sale_price
+      ,cast(avg(sale_price) as integer) as avg_sale_price
+      ,max(sale_price) as max_sale_price
+      ,count(*) as count_sales
+      ,rank() over (order by avg(sale_price) desc) as rank_avg_sale_price
+from   uk_price_paid
+where  transfer_date >= '2021/01/01'
+and    property_type <> 'O'
+and    category = 'A'
+and    postcode is not null
+and    postcode <> ''
+group  by 1 ) a
+       inner join
+       postcode_area_town b
+on     a.postcode_area = b.postcode_area
+order  by 4 desc
+;
